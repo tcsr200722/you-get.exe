@@ -16,13 +16,14 @@ Download the latest build executable from [Releases Page](https://github.com/Lus
 
 ## Bugs
 
-If something goes wrong when using the latest released executable, feel free to [start a new discussion](https://github.com/LussacZheng/you-get.exe/discussions) or [submit an issue](https://github.com/LussacZheng/you-get.exe/issues). If you don't have a GitHub account, leave a message in [this page](https://blog.lussac.net/archives/315/). You'd better attach the debug info. Get the detailed error report by adding the `--debug` option:
+If something goes wrong when using the latest released executable, feel free to [start a new discussion](https://github.com/LussacZheng/you-get.exe/discussions) or [submit an issue](https://github.com/LussacZheng/you-get.exe/issues).
+You'd better attach the debug info. Get the detailed error report by adding the `--debug` option:
 
 ```shell
 you-get --debug https://your.video/url/here
 ```
 
-For SSL related issues, try to use `-k` option:
+For SSL related issues, try to use `-k, --insecure` option:
 
 ```shell
 you-get -k --debug https://your.video/url/here
@@ -38,71 +39,61 @@ See below if you want to bundle and build by yourself.
 
 The following dependencies are required and must be installed separately.
 
-- [Python 3.7-3.10](https://www.python.org/downloads/windows/)  
-   According to the [README](https://github.com/pyinstaller/pyinstaller#requirements-and-tested-platforms) of PyInstaller, the supported Python version is 3.7-3.10 now (Jan. 3rd, 2022). To create a 32-bit executable, run PyInstaller under a 32-bit Python.
+- [Python 3.8-3.13](https://www.python.org/downloads/windows/)  
+   You can find the supported Python versions in the [README](https://github.com/pyinstaller/pyinstaller#requirements-and-tested-platforms) of PyInstaller.
+   To create a 32-bit executable, run PyInstaller under a 32-bit Python.
 
-- [Poetry](https://github.com/python-poetry/poetry#installation)
+- [Poetry](https://python-poetry.org/docs/#installation)
 
 - [Git](https://git-scm.com/)
 
-### Get this repository
-
-```shell
-git clone https://github.com/LussacZheng/you-get.exe.git
-```
-
 ### Build for the first time
 
-1. Initialization
-    - Run `devscripts/init.bat` .  
-     (It will clone the you-get repository by `git clone` . If you want to use proxy when cloning, edit `devscripts/use-proxy.conf` according to the example.)
-    - Create virtualenv and install dependencies.
-  
-      ```shell
-      poetry install
-      ```
+```shell
+# clone this repository
+git clone --recurse-submodules https://github.com/LussacZheng/you-get.exe.git
 
-2. After initialization, run `build.bat` under virtualenv.
+# create virtualenv and install dependencies
+poetry install
 
-   ```shell
-   poetry run build.bat
-   ```
+# run `build.py` under virtualenv
+poetry run python build.py
+```
 
-3. Find the executable in `dist/` directory.
+Find the executable in `dist/` directory.
 
 ### Build again if You-Get upgraded
 
 To re-build after the new release of You-Get:
 
-1. Make sure the scripts of this repository is up to date:
+```shell
+# make sure the build script is up to date
+git pull
 
-   ```shell
-   git pull
-   ```
+# update the repository of `you-get`
+git submodule update --remote
+# cd build\you-get
+# git checkout v0.x.xxxx
 
-   *If You-Get modified the [`src/you_get/extractors/__init__.py`](https://github.com/soimort/you-get/blob/develop/src/you_get/extractors/__init__.py) and I have not followed up and submitted in time, you need to manually edit `repository/_extractors/__init__.py` according to [this](https://github.com/LussacZheng/you-get.exe/blob/master/doc/PyInstaller-Options.md#%E7%89%B9%E6%AE%8A%E6%83%85%E5%86%B5) .*
+# update dependencies
+poetry update
 
-2. Run `devscripts/update.bat` .  
-   (It also reads the proxy settings from `devscripts/use-proxy.conf` )
-3. Re-run `build.bat` under virtualenv.
+# re-run `build.py` under virtualenv
+poetry run python build.py
+```
 
-   ```shell
-   poetry run build.bat
-   ```
-
-4. Find the executable in `dist/` directory.
-
-### More Information
-
-See more information in [**doc**](https://github.com/LussacZheng/you-get.exe/tree/master/doc) folder.
+Find the executable in `dist/` directory.
 
 ---
 
 ## TODO
 
 - [x] Introduce [Poetry](https://github.com/python-poetry/poetry) for dependency management.
-- [x] Rewrite `build.bat` with Python.
-- [ ] Use GitHub Action to build and release.
+- [x] Rewrite build script with Python.
+- [x] Use GitHub Actions to build and release.
+- [x] Add `you-get` as git submodule.
+- [x] Automatically append missing extractors to `src/you_get/extractors/__init__.py` when building.
+- [ ] Support Linux and macOS.
 
 ## License
 

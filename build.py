@@ -1,205 +1,52 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import glob
-import hashlib
-import os.path
-import platform
+import argparse
+import os
 import re
 import shutil
-import sys
-import time
 import zipfile
-from enum import Enum, unique
 
-import PyInstaller.__main__
-
-ROOT = os.path.split(os.path.realpath(__file__))[0]
-
-
-# region ########## Util Functions ##########
-
-
-def join_and_norm(base: str, *paths: str) -> str:
-    """Return the normalized path after joining the two paths.
-
-    For example, join_and_norm("a/b/c", "..\\d\\.\\e.txt", "../../f/g.jpg" == "a/b/f/g.jpg".
-    """
-
-    return os.path.normpath(os.path.join(base, *paths))
-
-
-def sha256sum(file_path: str) -> str:
-    """Return the SHA-256 checksum of input file.
-
-    :return: empty string if the `path` is not an existing regular file.
-    """
-
-    if not os.path.isfile(file_path):
-        return ""
-    with open(file_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
-
-
-# Don't use this variable directly, use `version()` instead.
-__ver = "0.0.0"
-# In order to avoid redundant file IO
-__ver_found = False
-
-
-def version() -> str:
-    """Return the version string of 'you-get'. (Defined in `src/you_get/version.py`)"""
-
-    global __ver, __ver_found
-    if not __ver_found:
-        # Whether the version number is actually found, set to it True
-        __ver_found = True
-        # Try to get version string from `src/you_get/version.py`
-        version_file = join_and_norm(ROOT, "repository/you-get/src/you_get/version.py")
-        if os.path.isfile(version_file):
-            with open(version_file, "r", encoding="utf-8") as f:
-                res = re.search(r"version.*'([\d.]+)'", f.read())
-                if res is not None:
-                    __ver = res.group(1)
-
-    return __ver
-
-
-def version_tuple() -> tuple:
-    """Return the version tuple of 'you-get'."""
-
-    v = [int(x) for x in version().split(".")]
-    while len(v) < 4:
-        v.append(0)
-    return tuple(v)
-
-
-def date() -> str:
-    """Return current date in the format of `%y%m%d`."""
-
-    return time.strftime("%y%m%d", time.localtime())
-
-
-def date_tuple() -> str:
-    """Return current date in the format of zero-trimmed `(%Y, %#m, %#d)`."""
-
-    return time.strftime("(%Y, %#m, %#d, 0)", time.localtime())
-
-
-def py_arch() -> str:
-    """Get the architecture of the python interpreter ("32" or "64")
-
-    Return the arch of the python interpreter currently in use.
-    Note that if you are using a 32-bit python interpreter on 64-bit Windows, you will get "32".
-    """
-
-    return platform.architecture()[0].rstrip("bit")
-
-
-def crlf_to_lf(file_path: str):
-    """Convert the line endings of the input file from CRLF to LF.
-
-    Note: this works in-place, which means it will overwrite the original file.
-    """
-
-    with open(file_path, "rb") as f:
-        content = f.read()
-    content = content.replace(b"\r\n", b"\n")
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-
-def compress_files(output_name: str, base_dir: str, file_list: list, comment: str = ""):
-    """Compress all the files of `file_list` inside the `base_dir`, into a ZIP archive.
-
-    :param output_name: Filename of the output ZIP archive
-    :param base_dir: Root directory as the prefix for `file_list`
-    :param file_list: A list of filenames inside the `base_dir`
-    :param comment: The comment string to be written into the ZIP file. If a path to text file
-        is provided, the contents of that file are used instead.
-    """
-
-    with zipfile.ZipFile(output_name, "w", zipfile.ZIP_DEFLATED) as z:
-        for file in file_list:
-            z.write(os.path.join(base_dir, file), arcname=file)
-        if os.path.isfile(comment):
-            with open(comment, "r", encoding="utf-8") as f:
-                z.comment = f.read().encode("utf-8")
-        else:
-            z.comment = comment.encode("utf-8")
-
-
-@unique
-class EchoStyle(Enum):
-    HrEqual = -1  # horizontal rule (equal)
-    HrDash = -2  # horizontal rule (dash)
-    Title = 1  # title of a step
-    Running = 2  # running a sub-step
-    Complete = 3  # completed a step
-    Finish = 4  # finish of all the steps
-    Warn = 10  # error message
-
-    def echo(self, content: str = ""):
-        def line_of(char):
-            print(f'\n{char * 60}\n')
-
-        if self is EchoStyle.HrEqual:
-            line_of("=")
-        elif self is EchoStyle.HrDash:
-            line_of("-")
-        elif self is EchoStyle.Title:
-            EchoStyle.HrEqual.echo()
-            print(f' * {content}...')
-            EchoStyle.HrDash.echo()
-        elif self is EchoStyle.Running:
-            print(f' - {content}')
-        elif self is EchoStyle.Complete:
-            print(f'\n * {content} completed.')
-        elif self is EchoStyle.Finish:
-            EchoStyle.HrEqual.echo()
-            print(f' * {content}')
-            EchoStyle.HrEqual.echo()
-        elif self is EchoStyle.Warn:
-            print(f' ! {content}')
-
-
-# endregion
-
+from scripts import utils, ROOT
+from scripts.artifact import ArtifactInfo
+from scripts.echo import EchoStyle
+from scripts.versions import py_version, py_arch, you_get_version, you_get_version_tuple, poetry_version
 
 # region ########## Config ##########
 
 DIST = os.path.join(ROOT, "dist")
-BUILD = os.path.join(ROOT, "build")
-ENTRY_POINT = "repository/you-get/you-get"
+TEMP = os.path.join(ROOT, ".temp")
+BUILD = "build"
+REPO = f"{BUILD}/you-get"
+ENTRY_POINT = f"{REPO}/you-get"
+EXECUTABLE = "you-get.exe" if os.name == "nt" else "you-get"
+DIST_FILENAME = f"you-get_{you_get_version(REPO)}_win{py_arch()}_py{py_version()}_UB{utils.date()}.zip"
 
 CONFIG = {
     "dist": {
-        "name": "you-get.exe",
-        "path": os.path.join(DIST, "you-get.exe"),
+        "exe": os.path.join(DIST, EXECUTABLE),
+        "zip": os.path.join(DIST, DIST_FILENAME),
     },
     "build": {
-        "products": os.path.join(BUILD, "you-get"),
-        "version_info_tmpl": os.path.join(BUILD, "file_version_info.tmpl"),
-        "version_info": os.path.join(BUILD, "file_version_info.txt"),
+        "products": os.path.join(TEMP, "you-get"),
+        "version_info_tmpl": os.path.join(ROOT, BUILD, "file_version_info.tmpl"),
+        "version_info": os.path.join(TEMP, "file_version_info.txt"),
     },
-    "copy": [
-        ("repository/you-get/LICENSE.txt", "LICENSE.txt"),
-        ("README.md", "README.md"),
-        ("README_cn.md", "README_cn.md"),
-    ],
-    "sha256sum": os.path.join(DIST, "sha256sum.txt"),
-    "crlf2lf": ["LICENSE.txt", "README.md", "README_cn.md", "sha256sum.txt"],
     "zip": {
-        "path": os.path.join(DIST, f"you-get_{version()}_win{py_arch()}_UB{date()}.zip"),
-        "list": ["you-get.exe", "LICENSE.txt", "README.md", "README_cn.md", "sha256sum.txt"],
-        "comment": os.path.join(DIST, "LICENSE.txt"),
+        "docs": [
+            (f"{REPO}/LICENSE.txt", "LICENSE.txt"),
+            ("README.md", "README.md"),
+            ("README_cn.md", "README_cn.md"),
+        ],
+        "checksum": "sha256sum.txt",
+        "comment": os.path.join(ROOT, f"{REPO}/LICENSE.txt"),
     },
 }
 
 FLAGS = {
-    "force_delete": False,
+    "force": False,  # force delete the outputs of last build
     "skip_build": False,
-    # "something": False,
+    "ci": False,
 }
 
 
@@ -212,53 +59,53 @@ FLAGS = {
 def init():
     """Step 0: Init"""
 
-    for arg in sys.argv[1:]:
-        if arg == "-f":
-            FLAGS["force_delete"] = True
-        if arg == "--skip-build":
-            FLAGS["skip_build"] = True
-        if arg == "--ci":
-            FLAGS["force_delete"] = True
-            # FLAGS["something"] = True
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--force", action="store_true", help="force the whole process, do not ask anything")
+    parser.add_argument("-s", "--skip-build", action="store_true", help="skip the main building process")
+    parser.add_argument("--ci", action="store_true", help="CI-specific argument")
+
+    global FLAGS
+    FLAGS = parser.parse_args().__dict__
+
+    if FLAGS["ci"]:
+        FLAGS["force"] = True
 
 
 def check():
     """Step 1: Check"""
 
-    if not os.path.isfile(join_and_norm(ROOT, ENTRY_POINT)):
-        EchoStyle.Warn.echo('Please run "devscripts\\init.bat" first or clone the repository of "you-get".')
-        sys.exit(1)
+    if not os.path.isfile(os.path.join(ROOT, ENTRY_POINT)):
+        EchoStyle.Exit.echo("Please run `git submodule update --init` to clone the repository of `you-get`.")
 
 
 def clean():
     """Step 2: Clean"""
 
     def rm(file_path: str, force_delete: bool = True):
+        if not os.path.isfile(file_path):
+            return
         if not force_delete:
-            choose = input(f' ! "{file_path}".\n ! Is it OK to delete this file (Y/N)? ')
-            if choose != "Y" and choose != "y":
-                EchoStyle.Finish.echo("Clean stopped.")
-                sys.exit(0)
+            choose = input(f' ? "{file_path}".\n ? Is it OK to delete this file (y/N)? ').upper()
+            if choose != "Y":
+                EchoStyle.Exit.echo("Clean canceled.")
         os.remove(file_path)
         EchoStyle.Running.echo(f'Deleted "{file_path}"')
 
     EchoStyle.Title.echo("Clean before building")
 
     # Clean last build products
-    build_dir = CONFIG["build"]["products"]
-    if os.path.exists(build_dir):
-        shutil.rmtree(build_dir)
+    if os.path.exists(TEMP):
+        shutil.rmtree(TEMP)
 
     # Clean last dist
-    if os.path.exists(DIST):
-        for f in CONFIG["zip"]["list"]:
-            file = os.path.join(DIST, f)
-            if os.path.isfile(file):
-                if not (FLAGS["skip_build"] and f == "you-get.exe"):
-                    rm(file)
-        archive = CONFIG["zip"]["path"]
-        if os.path.isfile(archive):
-            rm(archive, FLAGS["force_delete"])
+    exe = CONFIG["dist"]["exe"]
+    if FLAGS["skip_build"]:
+        if not os.path.isfile(exe):
+            EchoStyle.Exit.echo("You can't skip build when you haven't built it.")
+    else:
+        rm(exe)
+
+    rm(CONFIG["dist"]["zip"], FLAGS["force"])
 
     EchoStyle.Complete.echo("Clean")
 
@@ -272,6 +119,10 @@ def build():
         EchoStyle.Warn.echo("Build Skipped.")
         return
 
+    # create temp directory if necessary
+    if not os.path.exists(TEMP):
+        os.mkdir(TEMP)
+
     # Prepare `file_version_info.txt`
     src = CONFIG["build"]["version_info_tmpl"]
     dst = CONFIG["build"]["version_info"]
@@ -280,11 +131,12 @@ def build():
             template = f.read()
         with open(dst, "w", encoding="utf-8") as f:
             f.write(template.format(
-                version_tuple=version_tuple(),
-                date_tuple=date_tuple(),
-                version=version(),
-                date=date(),
-                py_arch="64" if py_arch() == "64" else "86",
+                version_tuple=you_get_version_tuple(REPO),
+                date_tuple=utils.date_tuple(),
+                version=you_get_version(REPO),
+                date=utils.date(),
+                py_version=py_version(),
+                py_arch="x64" if py_arch() == "64" else "x86",
             ))
 
     EchoStyle.Title.echo('pyinstaller "you-get"')
@@ -293,88 +145,118 @@ def build():
     previous_dir = os.getcwd()
     os.chdir(ROOT)
 
+    init_file = f"{REPO}/src/you_get/extractors/__init__.py"
+    temp_location = f"{BUILD}/__init__.py"
     try:
+        # Get a list of imported extractors.
+        # https://github.com/LussacZheng/you-get.exe/blob/master/doc/PyInstaller-Options.md
+        with open(init_file, "r", encoding="utf-8") as f:
+            exclude = re.findall(r"from \.(\w+) import \*", f.read())
+        # `embed` and `universal` have been imported by other submodules;
+        # `__init__` is target file itself;
+        # `__pycach` comes from `"__pycache__"[:-3]`.
+        exclude.extend(["embed", "universal", "__init__", "__pycach"])
+
+        # Find missing extractors (so-called "--hidden-import" in PyInstaller).
+        missing_extractors = []
+        for extractor_file in os.listdir(f"{REPO}/src/you_get/extractors/"):
+            extractor_name = extractor_file[:-3]
+            if extractor_name not in exclude:
+                missing_extractors.append(extractor_name)
+
         # First, move out the original `__init__.py` from "you_get.extractors",
         #     in order that we can recover everything after build.
-        # Then copy a new `__init__.py`, which has imported the missing extractors,
-        #     into the module "you_get.extractors".
-        shutil.move("repository/you-get/src/you_get/extractors/__init__.py", "repository/")
-        for file in glob.glob("repository/_extractors/*.py"):
-            shutil.copy(file, "repository/you-get/src/you_get/extractors/")
+        shutil.move(init_file, temp_location)
+        # Then create a new `__init__.py`.
+        shutil.copy(temp_location, init_file)
+        # Append these missing extractors to the new `__init__.py`.
+        with open(init_file, "a", encoding="utf-8") as f:
+            content = "\n# The following import statements are automatically @generated by `build.py`.\n"
+            for missing_extractor in missing_extractors:
+                content = content + f"from .{missing_extractor} import *\n"
+            f.write(content)
+
+        import PyInstaller.__main__
 
         # PyInstaller bundle command
         PyInstaller.__main__.run([
             ENTRY_POINT,
-            '--path=repository/you-get/src',
-            '--workpath=build',
-            '--specpath=build',
+            f'--path={REPO}/src',
+            '--workpath=.temp',
+            '--specpath=.temp',
             '--distpath=dist',
             '--hidden-import=you_get.extractors',
             '--hidden-import=you_get.cli_wrapper',
             '--hidden-import=you_get.processor',
             '--hidden-import=you_get.util',
-            '-F',
+            '--onefile',
             '--noupx',
-            '--icon=you-get.ico',
+            f'--icon=../{BUILD}/you-get.ico',
             '--version-file=file_version_info.txt'
         ])
     finally:
-        # Recover everything in "you-get.git" after built, whether this step was successful or not
-        for file in glob.glob("repository/_extractors/*.py"):
-            os.remove("repository/you-get/src/you_get/extractors/" + os.path.basename(file))
-        shutil.move("repository/__init__.py", "repository/you-get/src/you_get/extractors/")
+        # Recover everything in `you-get` submodule after built, whether this step was successful or not
+        os.remove(init_file)
+        shutil.move(temp_location, init_file)
         os.chdir(previous_dir)
 
     EchoStyle.HrDash.echo()
     EchoStyle.Running.echo(f'Build logs saved in:       "{CONFIG["build"]["products"]}"')
-    EchoStyle.Running.echo(f'Build executable saved to: "{CONFIG["dist"]["path"]}"')
+    EchoStyle.Running.echo(f'Build executable saved to: "{CONFIG["dist"]["exe"]}"')
     EchoStyle.Complete.echo("Build")
 
 
-def copy():
-    """Step 4: Copy"""
+def checksum() -> str:
+    """Step 4: Checksum"""
 
-    EchoStyle.Title.echo("Copy the required files")
-    for src, dst in CONFIG["copy"]:
-        EchoStyle.Running.echo(f'Copying "{src}" to "{dst}"...')
-        shutil.copy(join_and_norm(ROOT, src), os.path.join(DIST, dst))
-    EchoStyle.Running.echo(f'All the required files are now in: "{DIST}"')
-    EchoStyle.Complete.echo("Copy")
-
-
-def checksum():
-    """Step 5: Checksum"""
-
-    EchoStyle.Title.echo('SHA256 Checksum of "you-get.exe"')
-    hash_value = sha256sum(CONFIG["dist"]["path"])
-    output = CONFIG["sha256sum"]
-    with open(output, "w", encoding="utf-8") as f:
-        f.write(f'{hash_value} *{CONFIG["dist"]["name"]}')
-
+    EchoStyle.Title.echo('SHA256 Checksum of "you-get" executable')
+    hash_value = utils.sha256sum(CONFIG["dist"]["exe"])
     EchoStyle.Running.echo(f'SHA256 Checksum: {hash_value}')
     # EchoStyle.Running.echo("SHA256 Checksum has been copied into your clipboard.")
-    EchoStyle.Running.echo(f'Checksum file saved to: "{output}"')
     EchoStyle.Complete.echo("Checksum")
 
-
-def convert_line_endings():
-    """Step 6: CRLF to LF"""
-
-    EchoStyle.Title.echo("Convert line endings to LF")
-    for file in CONFIG["crlf2lf"]:
-        EchoStyle.Running.echo(f'Converting "{file}"...')
-        crlf_to_lf(os.path.join(DIST, file))
-    EchoStyle.Complete.echo("Convert")
+    return hash_value
 
 
-def package():
-    """Step 7: Zip all the required files"""
+def package(sha256: str):
+    """Step 5: Zip all the required files"""
 
     EchoStyle.Title.echo('Generate "you-get.zip"')
-    output = CONFIG["zip"]["path"]
-    compress_files(output, DIST, CONFIG["zip"]["list"], CONFIG["zip"]["comment"])
+    output = CONFIG["dist"]["zip"]
+
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as z:
+        # add build output executable
+        z.write(CONFIG["dist"]["exe"], arcname=EXECUTABLE)
+        # add documents after converting line endings
+        for file in CONFIG["zip"]["docs"]:
+            z.writestr(file[1], utils.crlf_to_lf(os.path.join(ROOT, file[0])))
+        # add checksum file
+        z.writestr(CONFIG["zip"]["checksum"], f"{sha256} *{EXECUTABLE}")
+        # assign comment
+        with open(CONFIG["zip"]["comment"], "r", encoding="utf-8") as f:
+            z.comment = f.read().encode("utf-8")
+
     EchoStyle.Running.echo(f'Zip archive file saved to:\n   "{output}"')
     EchoStyle.Complete.echo("Zip")
+
+
+def ci(sha256: str):
+    """Step 88: CI-specific step"""
+
+    if not FLAGS["ci"]:
+        return
+
+    import PyInstaller
+
+    # generate `artifact_info.json`
+    ArtifactInfo(
+        filename=DIST_FILENAME,
+        sha256=sha256,
+        py_version=py_version(),
+        py_arch=py_arch(),
+        poetry_version=poetry_version(),
+        pyinstaller_version=PyInstaller.__version__,
+    ).dump(DIST)
 
 
 def finish():
@@ -391,10 +273,9 @@ def main():
     check()
     clean()
     build()
-    copy()
-    checksum()
-    convert_line_endings()
-    package()
+    sha256 = checksum()
+    package(sha256)
+    ci(sha256)
     finish()
     return
 

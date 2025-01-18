@@ -2,24 +2,22 @@
 .idea
 .vscode
 
-# Used for test when coding
-.test*/
-
-# Project
+# Project, PyInstaller, build.py
 __pycache__
+.temp
 .venv
-## devscripts
-devscripts/use-proxy.conf
-devscripts/you-get.exe.zip
-## You-Get repository from `git clone`
-repository/you-get/
+build/__init__.py
 
-# PyInstaller
-*.spec
-build/you-get/
-build/file_version_info.txt
-## Ignore every file in "dist/" except "dist/released/.gitkeep"
+# Dev Scripts
+.test*/
+scripts/dev/you-get.exe.zip
+
+# Ignore all files in "dist/" except "dist/released/.gitkeep"
 dist/*
 !dist/released/
 dist/released/*
 !dist/released/.gitkeep
+
+# CI
+.ci
+scripts/ci/release_notes.md
